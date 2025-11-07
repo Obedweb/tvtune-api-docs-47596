@@ -44,7 +44,7 @@ export const ChannelsView = () => {
       
       if (error) throw error;
       
-      const channelData = data || [];
+      const channelData = data?.data || [];
       setChannels(channelData);
       
       // Extract unique values for filters
