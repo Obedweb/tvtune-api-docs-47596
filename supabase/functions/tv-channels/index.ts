@@ -5,6 +5,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Input validation helper
+const sanitizeString = (value: string | null, maxLength: number = 100): string | null => {
+  if (!value) return null;
+  return value.trim().substring(0, maxLength);
+};
+
+const validateUUID = (id: string): boolean => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(id);
+};
+
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -27,6 +38,15 @@ Deno.serve(async (req) => {
     console.log('Path parts:', pathParts);
     console.log('Is stats request:', isStatsRequest);
     console.log('ID:', id);
+
+    // Validate UUID if ID is provided
+    if (id && !validateUUID(id)) {
+      console.error('Invalid UUID format:', id);
+      return new Response(
+        JSON.stringify({ error: 'Invalid channel ID format' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // GET /tv-channels/stats - Get statistics
     if (isStatsRequest) {
@@ -81,45 +101,69 @@ Deno.serve(async (req) => {
 
     // GET /tv-channels - Get all channels with optional filters
     if (!id && !isStatsRequest) {
-      const category = url.searchParams.get('category');
-      const language = url.searchParams.get('language');
-      const country = url.searchParams.get('country');
-      const search = url.searchParams.get('search');
+      // Sanitize and validate input parameters
+      const category = sanitizeString(url.searchParams.get('category'), 50);
+      const language = sanitizeString(url.searchParams.get('language'), 50);
+      const country = sanitizeString(url.searchParams.get('country'), 50);
+      const search = sanitizeString(url.searchParams.get('search'), 100);
       
-      let query = supabase.from('tv_channels').select('*');
+      // Pagination parameters
+      const page = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
+      const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '50')));
+      const offset = (page - 1) * limit;
+      
+      console.log('Filters:', { category, language, country, search, page, limit });
+      
+      let query = supabase.from('tv_channels').select('*', { count: 'exact' });
 
-      if (category) {
+      // Apply filters with validation
+      if (category && category.length > 0) {
         query = query.eq('category', category);
       }
-      if (language) {
+      if (language && language.length > 0) {
         query = query.eq('language', language);
       }
-      if (country) {
+      if (country && country.length > 0) {
         query = query.eq('country', country);
       }
-      if (search) {
+      if (search && search.length > 0) {
         query = query.ilike('name', `%${search}%`);
       }
 
-      const { data, error } = await query.order('name');
+      // Apply pagination and ordering
+      const { data, error, count } = await query
+        .order('name', { ascending: true })
+        .range(offset, offset + limit - 1);
 
       if (error) {
         console.error('Error fetching channels:', error);
         return new Response(
-          JSON.stringify({ error: error.message }),
+          JSON.stringify({ 
+            error: 'Failed to fetch channels',
+            details: error.message 
+          }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      console.log('Returning channels:', data?.length);
+      console.log('Returning channels:', data?.length, 'Total:', count);
       return new Response(
-        JSON.stringify({ data, count: data?.length || 0 }),
+        JSON.stringify({ 
+          data, 
+          count: data?.length || 0,
+          total: count || 0,
+          page,
+          limit,
+          total_pages: count ? Math.ceil(count / limit) : 0
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     // GET /tv-channels/:id - Get single channel by ID
     if (id) {
+      console.log('Fetching channel with ID:', id);
+      
       const { data, error } = await supabase
         .from('tv_channels')
         .select('*')
@@ -129,19 +173,26 @@ Deno.serve(async (req) => {
       if (error) {
         console.error('Error fetching channel:', error);
         return new Response(
-          JSON.stringify({ error: error.message }),
+          JSON.stringify({ 
+            error: 'Failed to fetch channel',
+            details: error.message 
+          }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
       if (!data) {
+        console.log('Channel not found with ID:', id);
         return new Response(
-          JSON.stringify({ error: 'Channel not found' }),
+          JSON.stringify({ 
+            error: 'Channel not found',
+            message: 'No channel exists with the provided ID'
+          }),
           { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      console.log('Returning channel:', data.name);
+      console.log('Successfully returning channel:', data.name);
       return new Response(
         JSON.stringify({ data }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -156,7 +207,10 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Unexpected error:', error);
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ 
+        error: 'Internal server error',
+        message: 'An unexpected error occurred. Please try again later.'
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

@@ -44,6 +44,7 @@ export const ChannelsView = () => {
       
       if (error) throw error;
       
+      // Handle new API response format with pagination
       const channelData = data?.data || [];
       setChannels(channelData);
       
@@ -55,11 +56,13 @@ export const ChannelsView = () => {
       setCategories(uniqueCategories.sort());
       setLanguages(uniqueLanguages.sort());
       setCountries(uniqueCountries.sort());
+      
+      console.log('Loaded channels:', channelData.length, 'Total:', data?.total);
     } catch (error: any) {
       console.error('Error fetching channels:', error);
       toast({
         title: "Error loading channels",
-        description: error.message,
+        description: error.message || "Failed to load TV channels. Please try again.",
         variant: "destructive",
       });
     } finally {

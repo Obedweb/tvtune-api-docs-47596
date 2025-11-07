@@ -34,12 +34,14 @@ export const StatsView = ({ data, onDataLoad }: StatsViewProps) => {
         
         if (error) throw error;
         
-        onDataLoad(result);
+        // Extract the data property from the response
+        const statsData = result?.data || result;
+        onDataLoad(statsData);
       } catch (error: any) {
         console.error('Error fetching stats:', error);
         toast({
           title: "Error loading statistics",
-          description: error.message,
+          description: error.message || "Failed to load statistics. Please try again.",
           variant: "destructive",
         });
       }
@@ -109,8 +111,8 @@ export const StatsView = ({ data, onDataLoad }: StatsViewProps) => {
 
         <Card className="p-6">
           <h4 className="font-semibold mb-4">By Country</h4>
-          <div className="space-y-2">
-            {data.by_country.slice(0, 8).map((item, index) => (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {data.by_country.map((item, index) => (
               <div key={item.name} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                 <div className="flex items-center gap-3">
                   <div 
